@@ -60,29 +60,18 @@ class HoledView: UIView {
         holes.removeAll()
     }
     
-    func addRectHole(view: UIView, cornerRadius: CGFloat? = nil) {
-        holes.append(Hole(rectFor: view, cornerRadius: cornerRadius))
+    func addRectHole(view: UIView, cornerRadius: CGFloat? = nil) -> Hole {
+        let hole = Hole(rectFor: view, cornerRadius: cornerRadius)
+        holes.append(hole)
+        return hole
     }
     
-    func addElipse(view: UIView) {
-        holes.append(Hole(circleFor: view))
+    func addElipse(view: UIView) -> Hole {
+        let hole = Hole(circleFor: view)
+        holes.append(hole)
+        return hole
     }
-    
-    private func getAbsRect(hole: Hole) -> CGRect? {
-        var curView = hole.view
-        var rect    = curView?.frame
-        while let curSuperView = curView?.superview, curSuperView != superview {
-            let origin = curSuperView.frame.origin
-            rect       = rect?.offsetBy(dx: origin.x, dy: origin.y)
-            if let scrollView = curSuperView as? UIScrollView {
-                let offset = scrollView.contentOffset
-                rect       = rect?.offsetBy(dx: -offset.x, dy: -offset.y)
-            }
-            curView = curSuperView
-        }
-        return rect?.intersection(frame)
-    }
-    
+
     override func draw(_ bgRect: CGRect) {
         super.draw(bgRect)
         guard let context = UIGraphicsGetCurrentContext() else {
@@ -97,7 +86,7 @@ class HoledView: UIView {
         context.setFillColor(holeColor.cgColor)
         context.setBlendMode(.clear)
         holes.forEach() { hole in
-            if let absRect = getAbsRect(hole: hole) {
+            if let absRect = hole.getRelRect(to: self) {
                 switch hole.shape {
                 case .rect:
                     context.fill(absRect)
@@ -114,7 +103,7 @@ class HoledView: UIView {
 }
 
 
-private struct Hole {
+struct Hole {
          let shape:        HoleShape
          let cornerRadius: CGFloat?
     weak var view:         UIView?
@@ -130,6 +119,21 @@ private struct Hole {
         self.view    = view
         shape        = .elipse
         cornerRadius = nil
+    }
+    
+    func getRelRect(to relativeView: UIView) -> CGRect? {
+        var curView = view
+        var rect    = curView?.frame
+        while let curSuperView = curView?.superview, curSuperView != relativeView.superview {
+            let origin = curSuperView.frame.origin
+            rect       = rect?.offsetBy(dx: origin.x, dy: origin.y)
+            if let scrollView = curSuperView as? UIScrollView {
+                let offset = scrollView.contentOffset
+                rect       = rect?.offsetBy(dx: -offset.x, dy: -offset.y)
+            }
+            curView = curSuperView
+        }
+        return rect?.intersection(relativeView.frame)
     }
 }
 
