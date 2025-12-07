@@ -18,6 +18,8 @@ open class TutorialManager: NSObject {
     private      var fadeInDelay:         TimeInterval?
     private      var tutorialComplete:    (() -> Void)?
     private      var removableConstraints = [NSLayoutConstraint]()
+    private      var absConstraints       = [NSLayoutConstraint]()
+    private      let constraintPri        = UILayoutPriority(500) // lower than normal so we can't conflict with the main GUI
     
     public init(parent: UIView, fadeInDelay: TimeInterval? = nil, tutorialComplete: (() -> Void)? = nil) {
         self.fadeInDelay      = fadeInDelay
@@ -49,8 +51,18 @@ open class TutorialManager: NSObject {
     private func removeUiItems() {
         mask?.removeFromSuperview()
         mask = nil
-        parent.removeConstraints(self.removableConstraints)
+        parent.removeConstraints(removableConstraints)
+        parent.removeConstraints(absConstraints)
         removableConstraints.removeAll()
+        absConstraints.removeAll()
+    }
+    
+    func updateConstraints(holes: [Hole]) -> Bool {
+        parent.removeConstraints(absConstraints)
+        absConstraints.removeAll()
+        return holes.reduce(true) {
+            return $0 && addAbsConstraints(hole: $1)
+        }
     }
     
     /**
@@ -107,8 +119,7 @@ open class TutorialManager: NSObject {
      - onView: viewToDrawIn
      */
     fileprivate func showTarget(_ target: TutorialTarget) {
-        let mask:         HoledView
-        let constraintPri = UILayoutPriority(500) // lower than normal so we can't conflict with the main GUI
+        let mask: HoledView
         
         /* Should we create a new mask or not */
         if let classMask = self.mask {
@@ -116,7 +127,7 @@ open class TutorialManager: NSObject {
             mask = classMask
         } else {
             // New mask and add it to the parentView
-            mask             = HoledView(frame: parent.frame)
+            mask             = HoledView(frame: parent.frame, manager: self)
             self.mask        = mask
             mask.tapListener = tapped
             parent.addSubview(mask)
@@ -378,20 +389,8 @@ open class TutorialManager: NSObject {
             }
             mask.addSubview(label)
             
-            // With the liquid glass UI its possible that some buttonss on button bars won't be
-            // fully constrained, but their possition will be correct. So add some constraints to
-            // tie the view to its current possition. The low priority ensures theres no conflicts.
-            if let parent, let holeRect = hole?.getRelRect(to: parent), let view = hole?.view {
-                let left      = NSLayoutConstraint(item:   view,   attribute: .left, relatedBy: .equal,
-                                                   toItem: parent, attribute: .left, multiplier: 1, constant: holeRect.minX)
-                let top       = NSLayoutConstraint(item:   view,   attribute: .top,  relatedBy: .equal,
-                                                   toItem: parent, attribute: .top,  multiplier: 1, constant: holeRect.minY)
-                // Lower the priority so we don't confilict with the main UI if it is already well
-                // constrained
-                left.priority = constraintPri
-                top.priority  = constraintPri
-                constraints.append(left)
-                constraints.append(top)
+            if let hole {
+                addAbsConstraints(hole: hole)
             }
             
             removableConstraints.append(contentsOf: constraints)
@@ -419,6 +418,29 @@ open class TutorialManager: NSObject {
                 }
             }
         }
+    }
+    
+    private func addAbsConstraints(hole: Hole) -> Bool {
+        var ok: Bool = false
+        // With the liquid glass UI its possible that some buttonss on button bars won't be
+        // fully constrained, but their possition will be correct. So add some constraints to
+        // tie the view to its current possition. The low priority ensures theres no conflicts.
+        if let parent, let holeRect = hole.getRelRect(to: parent), let view = hole.view {
+            let left      = NSLayoutConstraint(item:   view,   attribute: .left, relatedBy: .equal,
+                                               toItem: parent, attribute: .left, multiplier: 1, constant: holeRect.minX)
+            let top       = NSLayoutConstraint(item:   view,   attribute: .top,  relatedBy: .equal,
+                                               toItem: parent, attribute: .top,  multiplier: 1, constant: holeRect.minY)
+            // Lower the priority so we don't confilict with the main UI if it is already well
+            // constrained
+            left.priority = constraintPri
+            top.priority  = constraintPri
+            absConstraints.append(left)
+            absConstraints.append(top)
+            parent.addConstraint(left)
+            parent.addConstraint(top)
+            ok = true
+        }
+        return ok
     }
     
     /**

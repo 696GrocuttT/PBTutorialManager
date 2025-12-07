@@ -13,12 +13,16 @@ import UIKit
 
 
 class HoledView: UIView {
-    private weak var tapGesture: UITapGestureRecognizer?
-                 var dimingColor = UIColor.black.withAlphaComponent(0.7)
-                 var holeColor   = UIColor.clear
+    private      var prevSize:               CGSize? = nil
+    private      var lastConstraintsUpdateOk = true
+    private weak var tapGesture:             UITapGestureRecognizer?
+    private weak var manager:                TutorialManager? = nil
+                 var dimingColor             = UIColor.black.withAlphaComponent(0.7)
+                 var holeColor               = UIColor.clear
     
-    override init(frame: CGRect) {
+    init(frame: CGRect, manager: TutorialManager) {
         super.init(frame: frame)
+        self.manager = manager
         setup()
     }
     
@@ -35,6 +39,21 @@ class HoledView: UIView {
         self.tapGesture      = tapGesture
         // The content needs to be redrawn when the size / layout of the view changes
         contentMode          = .redraw
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let curSize = bounds.size
+        if manager != nil, let prevSize, curSize != prevSize {
+            // flag that the constraints need updating
+            lastConstraintsUpdateOk = false
+        }
+        prevSize = curSize
+    }
+    
+    override func updateConstraints() {
+        super.updateConstraints()
+        lastConstraintsUpdateOk = manager?.updateConstraints(holes: holes) ?? true
     }
     
     @objc func viewTapped(_ gestureRecognizer: UITapGestureRecognizer) {
@@ -77,7 +96,12 @@ class HoledView: UIView {
         guard let context = UIGraphicsGetCurrentContext() else {
             return
         }
-        
+        // Now that we have the final possition/size of the hole then make sure the constraints are
+        // ok, and update if required.
+        if !lastConstraintsUpdateOk {
+            setNeedsUpdateConstraints()
+            return
+        }
         // Set the current color to the diming color and fill the whole rect
         context.setFillColor(dimingColor.cgColor)
         context.fill(bgRect)
@@ -133,7 +157,12 @@ struct Hole {
             }
             curView = curSuperView
         }
-        return rect?.intersection(relativeView.frame)
+        rect = rect?.intersection(relativeView.frame)
+        if let unwrappedRect = rect, !unwrappedRect.origin.x.isFinite || !unwrappedRect.size.width.isFinite ||
+                                     !unwrappedRect.origin.y.isFinite || !unwrappedRect.size.height.isFinite {
+            rect = nil
+        }
+        return rect
     }
 }
 
