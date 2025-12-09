@@ -390,7 +390,7 @@ open class TutorialManager: NSObject {
             mask.addSubview(label)
             
             if let hole {
-                addAbsConstraints(hole: hole)
+                _ = addAbsConstraints(hole: hole)
             }
             
             removableConstraints.append(contentsOf: constraints)
