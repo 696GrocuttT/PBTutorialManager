@@ -13,8 +13,6 @@ import UIKit
 
 
 class HoledView: UIView {
-    private      var prevSize:               CGSize? = nil
-    private      var lastConstraintsUpdateOk = true
     private weak var tapGesture:             UITapGestureRecognizer?
     private weak var manager:                TutorialManager? = nil
                  var dimingColor             = UIColor.black.withAlphaComponent(0.7)
@@ -43,17 +41,28 @@ class HoledView: UIView {
     
     override func layoutSubviews() {
         super.layoutSubviews()
-        let curSize = bounds.size
-        if manager != nil, let prevSize, curSize != prevSize {
-            // flag that the constraints need updating
-            lastConstraintsUpdateOk = false
+        setNeedsDisplay()
+    }
+
+    override var frame: CGRect {
+        didSet {
+            if frame.size != oldValue.size {
+                setNeedsUpdateConstraints()
+            }
         }
-        prevSize = curSize
+    }
+    
+    override var bounds: CGRect {
+        didSet {
+            if bounds.size != oldValue.size {
+                setNeedsUpdateConstraints()
+            }
+        }
     }
     
     override func updateConstraints() {
+        manager?.updateConstraints(holes: holes)
         super.updateConstraints()
-        lastConstraintsUpdateOk = manager?.updateConstraints(holes: holes) ?? true
     }
     
     @objc func viewTapped(_ gestureRecognizer: UITapGestureRecognizer) {
@@ -94,12 +103,6 @@ class HoledView: UIView {
     override func draw(_ bgRect: CGRect) {
         super.draw(bgRect)
         guard let context = UIGraphicsGetCurrentContext() else {
-            return
-        }
-        // Now that we have the final possition/size of the hole then make sure the constraints are
-        // ok, and update if required.
-        if !lastConstraintsUpdateOk {
-            setNeedsUpdateConstraints()
             return
         }
         // Set the current color to the diming color and fill the whole rect

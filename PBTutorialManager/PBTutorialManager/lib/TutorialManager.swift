@@ -57,11 +57,11 @@ open class TutorialManager: NSObject {
         absConstraints.removeAll()
     }
     
-    func updateConstraints(holes: [Hole]) -> Bool {
+    func updateConstraints(holes: [Hole]) {
         parent.removeConstraints(absConstraints)
         absConstraints.removeAll()
-        return holes.reduce(true) {
-            return $0 && addAbsConstraints(hole: $1)
+        for hole in holes {
+            addAbsConstraints(hole: hole)
         }
     }
     
@@ -390,7 +390,7 @@ open class TutorialManager: NSObject {
             mask.addSubview(label)
             
             if let hole {
-                _ = addAbsConstraints(hole: hole)
+                addAbsConstraints(hole: hole)
             }
             
             removableConstraints.append(contentsOf: constraints)
@@ -420,8 +420,7 @@ open class TutorialManager: NSObject {
         }
     }
     
-    private func addAbsConstraints(hole: Hole) -> Bool {
-        var ok: Bool = false
+    private func addAbsConstraints(hole: Hole) {
         // With the liquid glass UI its possible that some buttonss on button bars won't be
         // fully constrained, but their possition will be correct. So add some constraints to
         // tie the view to its current possition. The low priority ensures theres no conflicts.
@@ -438,9 +437,7 @@ open class TutorialManager: NSObject {
             absConstraints.append(top)
             parent.addConstraint(left)
             parent.addConstraint(top)
-            ok = true
         }
-        return ok
     }
     
     /**
