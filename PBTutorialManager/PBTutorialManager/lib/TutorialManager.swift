@@ -72,7 +72,13 @@ open class TutorialManager: NSObject {
             mask.setNeedsUpdateConstraints()
             mask.updateConstraintsIfNeeded()
             restoreConstraints()
-            
+            refreshArrowConstraints()
+            mask.setNeedsDisplay()
+        }
+    }
+
+    private func refreshArrowConstraints() {
+        if let parent {
             // Floating toolbars can move their hosting view without updating the cross-hierarchy
             // Auto Layout position of a custom button. Keep the arrow constrained to that button,
             // correcting the constant from their actual positions after the transition.
@@ -81,8 +87,10 @@ open class TutorialManager: NSObject {
             for (constraint, originalConstant) in targetConstraints where constraint.isActive {
                 if let arrow  = constraint.firstItem  as? UIView,
                    let target = constraint.secondItem as? UIView,
+                   !arrow.isHidden,
                    arrow.isDescendant(of:  parent),
                    target.isDescendant(of: parent),
+                   !arrow.bounds.isEmpty, !target.bounds.isEmpty,
                    let arrowAnchor  = anchor(constraint.firstAttribute,  in: arrow.convert(arrow.bounds, to: parent)),
                    let targetAnchor = anchor(constraint.secondAttribute, in: target.convert(target.bounds, to: parent)) {
                     let correction = targetAnchor + originalConstant - arrowAnchor
@@ -95,7 +103,6 @@ open class TutorialManager: NSObject {
             if corrected {
                 parent.layoutIfNeeded()
             }
-            mask.setNeedsDisplay()
         }
     }
 
@@ -455,6 +462,8 @@ open class TutorialManager: NSObject {
             
             removableConstraints.append(contentsOf: constraints)
             parent.addConstraints(constraints)
+            // Advancing a tutorial after rotation does not cause another controller layout callback.
+            refreshArrowConstraints()
             
             let handleNextTarget = {
                 //If not persistent disappear before the next mask appear
