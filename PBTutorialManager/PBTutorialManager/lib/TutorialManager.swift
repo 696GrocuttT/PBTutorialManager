@@ -19,6 +19,7 @@ open class TutorialManager: NSObject {
     private      var tutorialComplete:    (() -> Void)?
     private      var removableConstraints = [NSLayoutConstraint]()
     private      var absConstraints       = [NSLayoutConstraint]()
+    private      var targetConstraints    = [(constraint: NSLayoutConstraint, originalConstant: CGFloat)]()
     private      let constraintPri        = UILayoutPriority(500) // lower than normal so we can't conflict with the main GUI
     
     public init(parent: UIView, fadeInDelay: TimeInterval? = nil, tutorialComplete: (() -> Void)? = nil) {
@@ -55,6 +56,7 @@ open class TutorialManager: NSObject {
         parent.removeConstraints(absConstraints)
         removableConstraints.removeAll()
         absConstraints.removeAll()
+        targetConstraints.removeAll()
     }
     
     func updateConstraints(holes: [Hole]) {
@@ -62,6 +64,59 @@ open class TutorialManager: NSObject {
         absConstraints.removeAll()
         for hole in holes {
             addAbsConstraints(hole: hole)
+        }
+    }
+
+    public func refreshConstraints() {
+        if let mask {
+            mask.setNeedsUpdateConstraints()
+            mask.updateConstraintsIfNeeded()
+            restoreConstraints()
+            
+            // Floating toolbars can move their hosting view without updating the cross-hierarchy
+            // Auto Layout position of a custom button. Keep the arrow constrained to that button,
+            // correcting the constant from their actual positions after the transition.
+            parent.layoutIfNeeded()
+            var corrected = false
+            for (constraint, originalConstant) in targetConstraints where constraint.isActive {
+                if let arrow  = constraint.firstItem  as? UIView,
+                   let target = constraint.secondItem as? UIView,
+                   arrow.isDescendant(of:  parent),
+                   target.isDescendant(of: parent),
+                   let arrowAnchor  = anchor(constraint.firstAttribute,  in: arrow.convert(arrow.bounds, to: parent)),
+                   let targetAnchor = anchor(constraint.secondAttribute, in: target.convert(target.bounds, to: parent)) {
+                    let correction = targetAnchor + originalConstant - arrowAnchor
+                    if abs(correction) > 0.5 {
+                        constraint.constant += correction
+                        corrected = true
+                    }
+                }
+            }
+            if corrected {
+                parent.layoutIfNeeded()
+            }
+            mask.setNeedsDisplay()
+        }
+    }
+
+    private func anchor(_ attribute: NSLayoutConstraint.Attribute, in rect: CGRect) -> CGFloat? {
+        return switch attribute {
+        case .left, .leading:   rect.minX
+        case .right, .trailing: rect.maxX
+        case .centerX:          rect.midX
+        case .top:              rect.minY
+        case .bottom:           rect.maxY
+        case .centerY:          rect.midY
+        default:                nil
+        }
+    }
+
+    func restoreConstraints() {
+        for constraint in removableConstraints where !constraint.isActive {
+            let views = [constraint.firstItem, constraint.secondItem].compactMap({ $0 as? UIView })
+            if views.allSatisfy({ $0.isDescendant(of: parent) }) {
+                constraint.isActive = true
+            }
         }
     }
     
@@ -168,6 +223,7 @@ open class TutorialManager: NSObject {
             let arrowHeadX: NSLayoutConstraint.Attribute
             let arrowHeadY: NSLayoutConstraint.Attribute
             var constraints = [NSLayoutConstraint]()
+            var targetConstraints = [NSLayoutConstraint]()
         
             // Now setup the arrow direction
             if let arrow = arrow {
@@ -277,73 +333,73 @@ open class TutorialManager: NSObject {
                 /* Illustration
                  H:[view]-[arrowView]-[label]
                  V:[view]-topMargin-[arrowView]-bottomTextMargin-[label] */
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
-                                                      toItem: view, attribute: .centerX,   multiplier: 1, constant: target.leftMargin - target.rightMargin))
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
-                                                      toItem: view, attribute: .top,       multiplier: 1, constant: target.topMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
+                                                            toItem: view, attribute: .centerX,   multiplier: 1, constant: target.leftMargin - target.rightMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
+                                                            toItem: view, attribute: .top,       multiplier: 1, constant: target.topMargin))
                 
             case .bottom:
                 /* Illustration
                  H:[view]-[arrowView]-[label]
                  V:[view]-bottomMargin-[arrowView]-topTextMargin-[label] */
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
-                                                      toItem: view, attribute: .centerX,   multiplier: 1, constant: target.leftMargin - target.rightMargin))
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
-                                                      toItem: view, attribute: .bottom,    multiplier: 1, constant: target.bottomMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
+                                                            toItem: view, attribute: .centerX,   multiplier: 1, constant: target.leftMargin - target.rightMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
+                                                            toItem: view, attribute: .bottom,    multiplier: 1, constant: target.bottomMargin))
                 
             case .left:
                 /* Illustration
                  H:[label]-rightTextMargin-[arrowView]-leftMargin-[view]
                  V:[label]-[arrowView]-[view] */
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
-                                                      toItem: view, attribute: .left,      multiplier: 1, constant: target.leftMargin))
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
-                                                      toItem: view, attribute: .centerY,   multiplier: 1, constant: target.topMargin - target.bottomMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
+                                                            toItem: view, attribute: .left,      multiplier: 1, constant: target.leftMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
+                                                            toItem: view, attribute: .centerY,   multiplier: 1, constant: target.topMargin - target.bottomMargin))
                 
             case .right:
                 /* Illustration
                  H:[view]-rightMargin-[arrowView]-leftTextMargin-[label]
                  V:[view]-[arrowView]-[label] */
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
-                                                      toItem: view, attribute: .right,     multiplier: 1, constant: target.rightMargin))
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
-                                                      toItem: view, attribute: .centerY,   multiplier: 1, constant: target.topMargin - target.bottomMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
+                                                            toItem: view, attribute: .right,     multiplier: 1, constant: target.rightMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
+                                                            toItem: view, attribute: .centerY,   multiplier: 1, constant: target.topMargin - target.bottomMargin))
                 
             case .topLeft:
                 /* Illustration
                  H:[label]-rightTextMargin-[arrowView]-leftMargin-[view]
                  V:[view]-topMargin-[arrowView]-bottomTextMargin-[label] */
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
-                                                      toItem: view, attribute: .left,      multiplier: 1, constant: target.leftMargin))
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
-                                                      toItem: view, attribute: .top,       multiplier: 1, constant: target.topMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
+                                                            toItem: view, attribute: .left,      multiplier: 1, constant: target.leftMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
+                                                            toItem: view, attribute: .top,       multiplier: 1, constant: target.topMargin))
                 
             case .topRight:
                 /* Illustration
                  H:[view]-rightMargin-[arrowView]-leftTextMargin-[label]
                  V:[view]-topMargin-[arrowView]-bottomTextMargin-[label] */
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
-                                                      toItem: view, attribute: .right,     multiplier: 1, constant: target.rightMargin))
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
-                                                      toItem: view, attribute: .top,       multiplier: 1, constant: target.topMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
+                                                            toItem: view, attribute: .right,     multiplier: 1, constant: target.rightMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
+                                                            toItem: view, attribute: .top,       multiplier: 1, constant: target.topMargin))
                 
             case .bottomLeft:
                 /* Illustration
                  H:[label]-rightTextMargin-[arrowView]-leftMargin-[view]
                  V:[view]-bottomMargin-[arrowView]-topTextMargin-[label] */
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
-                                                      toItem: view, attribute: .left,      multiplier: 1, constant: target.leftMargin))
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
-                                                      toItem: view, attribute: .bottom,    multiplier: 1, constant: target.bottomMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
+                                                            toItem: view, attribute: .left,      multiplier: 1, constant: target.leftMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
+                                                            toItem: view, attribute: .bottom,    multiplier: 1, constant: target.bottomMargin))
                 
             case .bottomRight:
                 /* Illustration
                  H:[view]-rightMargin-[arrowView]-leftTextMargin-[label]
                  V:[view]-bottomMargin-[arrowView]-topTextMargin-[label] */
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
-                                                      toItem: view, attribute: .right,     multiplier: 1, constant: target.rightMargin))
-                constraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
-                                                      toItem: view, attribute: .bottom,    multiplier: 1, constant: target.bottomMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadX, relatedBy: .equal,
+                                                            toItem: view, attribute: .right,     multiplier: 1, constant: target.rightMargin))
+                targetConstraints.append(NSLayoutConstraint(item: arrow!, attribute: arrowHeadY, relatedBy: .equal,
+                                                            toItem: view, attribute: .bottom,    multiplier: 1, constant: target.bottomMargin))
                 
             case .centre:
                 constraints.append(NSLayoutConstraint(item: label,    attribute: .centerX, relatedBy: .equal,
@@ -352,6 +408,10 @@ open class TutorialManager: NSObject {
                                                       toItem: view,   attribute: .centerY, multiplier: 1, constant: target.topTextMargin - target.bottomTextMargin))
             }
             
+            for constraint in targetConstraints {
+                constraints.append(constraint)
+                self.targetConstraints.append((constraint: constraint, originalConstant: constraint.constant))
+            }
             
             // Setup the label attributes
             label.numberOfLines = 0
@@ -424,7 +484,7 @@ open class TutorialManager: NSObject {
         // With the liquid glass UI its possible that some buttonss on button bars won't be
         // fully constrained, but their possition will be correct. So add some constraints to
         // tie the view to its current possition. The low priority ensures theres no conflicts.
-        if let parent, let holeRect = hole.getRelRect(to: parent), let view = hole.view {
+        if let parent, let holeRect = hole.getRelRect(to: parent), let view = hole.view, view.isDescendant(of: parent) {
             let left      = NSLayoutConstraint(item:   view,   attribute: .left, relatedBy: .equal,
                                                toItem: parent, attribute: .left, multiplier: 1, constant: holeRect.minX)
             let top       = NSLayoutConstraint(item:   view,   attribute: .top,  relatedBy: .equal,
