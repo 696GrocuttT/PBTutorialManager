@@ -431,11 +431,13 @@ open class TutorialManager: NSObject {
             // Weaken the width compression resistance so it is below the priority of the
             // possitioning constraints of UIButtonBarItem's. Otherwise the tutorial labels can
             // cause the items to move.
-            label.setContentCompressionResistancePriority(UILayoutPriority(rawValue: constraintPri.rawValue - 1), for: .horizontal)
-            // Add a max width constraint to the label. We leave the height unconstrained so it can
-            // expand to fit the text as required
-            constraints.append(NSLayoutConstraint(item: label, attribute: .width,          relatedBy:  .lessThanOrEqual,
-                                                  toItem: nil, attribute: .notAnAttribute, multiplier: 1, constant: target.labelWidth))
+            label.setContentCompressionResistancePriority(UILayoutPriority(rawValue: constraintPri.rawValue - 2), for: .horizontal)
+            // Prefer the target width while allowing the label to fit inside the parent.
+            // A width limit alone can let its intrinsic width shrink after repeated layouts.
+            let labelWidthConstraint      = NSLayoutConstraint(item: label, attribute: .width,          relatedBy: .equal,
+                                                               toItem: nil, attribute: .notAnAttribute, multiplier: 1, constant: target.labelWidth)
+            labelWidthConstraint.priority = UILayoutPriority(rawValue: constraintPri.rawValue - 1)
+            constraints.append(labelWidthConstraint)
             // Now make sure the label doesn't go outside the parent
             constraints.append(NSLayoutConstraint(item: label,     attribute: .leading,  relatedBy:  .greaterThanOrEqual,
                                                    toItem: parent, attribute: .leading,  multiplier: 1, constant: 0))
