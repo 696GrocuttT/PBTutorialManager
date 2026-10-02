@@ -149,23 +149,14 @@ struct Hole {
     }
     
     func getRelRect(to relativeView: UIView) -> CGRect? {
-        var curView = view
-        var rect    = curView?.frame
-        while let curSuperView = curView?.superview, curSuperView != relativeView.superview {
-            let origin = curSuperView.frame.origin
-            rect       = rect?.offsetBy(dx: origin.x, dy: origin.y)
-            if let scrollView = curSuperView as? UIScrollView {
-                let offset = scrollView.contentOffset
-                rect       = rect?.offsetBy(dx: -offset.x, dy: -offset.y)
+        var result: CGRect?
+        if let view, let window = view.window, window === (relativeView as? UIWindow ?? relativeView.window) {
+            let rect = view.convert(view.bounds, to: relativeView).intersection(relativeView.bounds)
+            if !rect.isNull, rect.minX.isFinite, rect.minY.isFinite, rect.width.isFinite, rect.height.isFinite {
+                result = rect
             }
-            curView = curSuperView
         }
-        rect = rect?.intersection(relativeView.frame)
-        if let unwrappedRect = rect, !unwrappedRect.origin.x.isFinite || !unwrappedRect.size.width.isFinite ||
-                                     !unwrappedRect.origin.y.isFinite || !unwrappedRect.size.height.isFinite {
-            rect = nil
-        }
-        return rect
+        return result
     }
 }
 
