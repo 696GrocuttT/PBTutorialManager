@@ -20,6 +20,7 @@ open class TutorialManager: NSObject {
     private      var removableConstraints = [NSLayoutConstraint]()
     private      var absConstraints       = [NSLayoutConstraint]()
     private      var targetConstraints    = [(constraint: NSLayoutConstraint, originalConstant: CGFloat)]()
+    private      var shownTargets         = [(view: UIView, label: UILabel, arrow: UIView?)]()
     private      let constraintPri        = UILayoutPriority(500) // lower than normal so we can't conflict with the main GUI
     
     public init(parent: UIView, fadeInDelay: TimeInterval? = nil, tutorialComplete: (() -> Void)? = nil) {
@@ -57,6 +58,7 @@ open class TutorialManager: NSObject {
         removableConstraints.removeAll()
         absConstraints.removeAll()
         targetConstraints.removeAll()
+        shownTargets.removeAll()
     }
     
     func updateConstraints(holes: [Hole]) {
@@ -72,8 +74,24 @@ open class TutorialManager: NSObject {
             mask.setNeedsUpdateConstraints()
             mask.updateConstraintsIfNeeded()
             restoreConstraints()
+            refreshTargetVisibility()
             refreshArrowConstraints()
             mask.setNeedsDisplay()
+        }
+    }
+
+    private func refreshTargetVisibility() {
+        if let mask {
+            for (view, label, arrow) in shownTargets {
+                var visible = false
+                if let window = view.window, window === mask.window {
+                    let rect = view.convert(view.bounds, to: mask).intersection(mask.bounds)
+                    visible  = !rect.isNull && rect.minX.isFinite  && rect.minY.isFinite &&
+                                               rect.width.isFinite && rect.height.isFinite
+                }
+                label.isHidden  = !visible
+                arrow?.isHidden = !visible
+            }
         }
     }
 
@@ -466,6 +484,8 @@ open class TutorialManager: NSObject {
             parent.addConstraints(constraints)
             // Advancing a tutorial after rotation does not cause another controller layout callback.
             refreshArrowConstraints()
+            shownTargets.append((view: view, label: label, arrow: arrow))
+            refreshTargetVisibility()
             
             let handleNextTarget = {
                 //If not persistent disappear before the next mask appear
@@ -473,6 +493,7 @@ open class TutorialManager: NSObject {
                     mask.removeHoles()
                     arrow?.isHidden = true
                     label.isHidden = true
+                    self.shownTargets.removeAll(where: {$0.label === label})
                 }
                 self.targets.removeFirst()
                 self.fireTargets()

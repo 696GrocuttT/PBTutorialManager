@@ -58,6 +58,15 @@ tutorialManager.addTarget(targetMainImage)
 tutorialManager.addTarget(targetButton)
 tutorialManager.fireTargets()
 ```
+For targets inside a split view controller, call `refreshConstraints()` from the target column's `viewDidLayoutSubviews()`. Its toolbar can finish laying out after the split view transition callback. The refresh hides labels and arrows when their targets leave the screen and reconnects arrows when the column returns. If the split controller owns the tutorial manager, forward the layout callback from the column controller to it.
+
+```swift
+override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    tutorialManager?.refreshConstraints()
+}
+```
+
 #### Extra target properties
 Target has other properties you can play with
 ```swift
