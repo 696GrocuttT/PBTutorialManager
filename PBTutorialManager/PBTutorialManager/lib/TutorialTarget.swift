@@ -26,13 +26,27 @@ open class TutorialTarget: NSObject {
         case bottomLeft
         case centre
     }
-    
+
+    enum BarPlacement: Equatable {
+        case horizontal
+        case leading
+        case trailing
+    }
+
     open var view:UIView? /* The view you want to highlight */
+    var targetView:UIView? { barButtonItem == nil ? view : barButtonAnchor }
+    open var barButtonItem:UIBarButtonItem?
+    open var containerView:UIView?
+    private var barButtonAnchor:UIView?
     open var message:String! /* The text you want to show */
     open var textAlignement:NSTextAlignment = NSTextAlignment.center /* The text alignement */
     open var labelWidth:CGFloat = 75
     open var position:TargetPosition /* The position of your text around the highlight view */
     open var arrowStartPosition:TargetPosition? /* The position of the start of the arrow */
+    open var sideLeadingPosition:TargetPosition? = nil
+    open var sideTrailingPosition:TargetPosition? = nil
+    open var sideLeadingArrowStartPosition:TargetPosition? = nil
+    open var sideTrailingArrowStartPosition:TargetPosition? = nil
     open var shape:HoleShape? /* The shape of the mask to highlight the view */
     open var font:UIFont = UIFont.systemFont(ofSize: 18.0) /* The font of the target */
     open var duration:TimeInterval? /* time duration before to show the next target */
@@ -56,6 +70,10 @@ open class TutorialTarget: NSObject {
     open var withArrow:Bool = true
     open var heightArrow:CGFloat = 50
     open var widthArrow:CGFloat = 50
+    open var sideLeadingHeightArrow:CGFloat? = nil
+    open var sideTrailingHeightArrow:CGFloat? = nil
+    open var sideLeadingWidthArrow:CGFloat? = nil
+    open var sideTrailingWidthArrow:CGFloat? = nil
     open var arrowHeadSize:CGFloat = 10
     
     public init(view:UIView?) {
@@ -64,34 +82,126 @@ open class TutorialTarget: NSObject {
         self.position = .bottom
         super.init()
     }
+
+    public init(barButtonItem: UIBarButtonItem, in containerView: UIView) {
+        self.view = barButtonItem.customView
+        self.barButtonItem = barButtonItem
+        self.containerView = containerView
+        self.message = ""
+        self.position = .bottom
+        super.init()
+    }
     
     public init(copyFrom: TutorialTarget) {
-        view               = copyFrom.view
-        message            = copyFrom.message
-        textAlignement     = copyFrom.textAlignement
-        labelWidth         = copyFrom.labelWidth
-        position           = copyFrom.position
-        shape              = copyFrom.shape
-        font               = copyFrom.font
-        duration           = copyFrom.duration
-        isTappable         = copyFrom.isTappable
-        onShow             = copyFrom.onShow
-        persistant         = copyFrom.persistant
-        breakPoint         = copyFrom.breakPoint
-        topMargin          = copyFrom.topMargin
-        rightMargin        = copyFrom.rightMargin
-        bottomMargin       = copyFrom.bottomMargin
-        leftMargin         = copyFrom.leftMargin
-        topTextMargin      = copyFrom.topTextMargin
-        rightTextMargin    = copyFrom.rightTextMargin
-        bottomTextMargin   = copyFrom.bottomTextMargin
-        leftTextMargin     = copyFrom.leftTextMargin
-        withArrow          = copyFrom.withArrow
-        heightArrow        = copyFrom.heightArrow
-        widthArrow         = copyFrom.widthArrow
-        arrowHeadSize      = copyFrom.arrowHeadSize
-        arrowStartPosition = copyFrom.arrowStartPosition
+        view                           = copyFrom.view
+        barButtonItem                  = copyFrom.barButtonItem
+        containerView                  = copyFrom.containerView
+        message                        = copyFrom.message
+        textAlignement                 = copyFrom.textAlignement
+        labelWidth                     = copyFrom.labelWidth
+        position                       = copyFrom.position
+        shape                          = copyFrom.shape
+        font                           = copyFrom.font
+        duration                       = copyFrom.duration
+        isTappable                     = copyFrom.isTappable
+        onShow                         = copyFrom.onShow
+        persistant                     = copyFrom.persistant
+        breakPoint                     = copyFrom.breakPoint
+        topMargin                      = copyFrom.topMargin
+        rightMargin                    = copyFrom.rightMargin
+        bottomMargin                   = copyFrom.bottomMargin
+        leftMargin                     = copyFrom.leftMargin
+        topTextMargin                  = copyFrom.topTextMargin
+        rightTextMargin                = copyFrom.rightTextMargin
+        bottomTextMargin               = copyFrom.bottomTextMargin
+        leftTextMargin                 = copyFrom.leftTextMargin
+        withArrow                      = copyFrom.withArrow
+        heightArrow                    = copyFrom.heightArrow
+        widthArrow                     = copyFrom.widthArrow
+        arrowHeadSize                  = copyFrom.arrowHeadSize
+        arrowStartPosition             = copyFrom.arrowStartPosition
+        sideLeadingPosition            = copyFrom.sideLeadingPosition
+        sideTrailingPosition           = copyFrom.sideTrailingPosition
+        sideLeadingArrowStartPosition  = copyFrom.sideLeadingArrowStartPosition
+        sideTrailingArrowStartPosition = copyFrom.sideTrailingArrowStartPosition
+        sideLeadingHeightArrow         = copyFrom.sideLeadingHeightArrow
+        sideTrailingHeightArrow        = copyFrom.sideTrailingHeightArrow
+        sideLeadingWidthArrow          = copyFrom.sideLeadingWidthArrow
+        sideTrailingWidthArrow         = copyFrom.sideTrailingWidthArrow
         super.init()
+    }
+
+    private func barButtonFrame(in parent: UIView) -> CGRect? {
+        guard let item = barButtonItem, !item.isHidden, let containerView,
+              let window = containerView.window, window === (parent as? UIWindow ?? parent.window) else { return nil }
+        guard let frame = item.frame(in: parent), !frame.isEmpty, frame.minX.isFinite, frame.minY.isFinite,
+              frame.width.isFinite, frame.height.isFinite,
+              !frame.intersection(parent.bounds).isEmpty else { return nil }
+        return frame
+    }
+
+    func installAnchor(in parent: UIView) {
+        guard barButtonItem != nil, barButtonAnchor == nil,
+              let frame = barButtonFrame(in: parent) else { return }
+        let anchor = UIView(frame: frame)
+        anchor.isUserInteractionEnabled = false
+        parent.addSubview(anchor)
+        barButtonAnchor = anchor
+    }
+
+    func updateAnchorFrame(in parent: UIView) {
+        guard let anchor = barButtonAnchor else { return }
+        let frame = barButtonFrame(in: parent) ?? .zero
+        if anchor.frame != frame { anchor.frame = frame }
+    }
+
+    func removeAnchor() {
+        barButtonAnchor?.removeFromSuperview()
+        barButtonAnchor = nil
+    }
+    
+    func placement() -> BarPlacement {
+        var placement = BarPlacement.horizontal
+        if #available(iOS 27.1, *) {
+            placement = switch containerView?.traitCollection.verticalBarEdge ?? .unspecified {
+            case .leading:     .leading
+            case .trailing:    .trailing
+            case .unspecified: .horizontal
+            @unknown default:  .horizontal
+            }
+        }
+        return placement
+    }
+    
+    func placementDetails() -> (placement:   BarPlacement, position:   TargetPosition, arrowStartPosition: TargetPosition,
+                                heightArrow: CGFloat,      widthArrow: CGFloat) {
+        let placement               = placement()
+        let sidePosition:           TargetPosition?
+        let sideArrowStartPosition: TargetPosition?
+        let sideHeightArrow:        CGFloat?
+        let sideWidthArrow:         CGFloat?
+        switch placement {
+        case .leading:
+            sidePosition           = sideLeadingPosition
+            sideArrowStartPosition = sideLeadingArrowStartPosition
+            sideHeightArrow        = sideLeadingHeightArrow
+            sideWidthArrow         = sideLeadingWidthArrow
+        case .trailing:
+            sidePosition           = sideTrailingPosition
+            sideArrowStartPosition = sideTrailingArrowStartPosition
+            sideHeightArrow        = sideTrailingHeightArrow
+            sideWidthArrow         = sideTrailingWidthArrow
+        case .horizontal:
+            sidePosition           = nil
+            sideArrowStartPosition = nil
+            sideHeightArrow        = nil
+            sideWidthArrow         = nil
+        }
+        let position = sidePosition ?? self.position
+        return (placement:          placement, position: position,
+                arrowStartPosition: sideArrowStartPosition ?? arrowStartPosition ?? position,
+                heightArrow:        sideHeightArrow        ?? heightArrow,
+                widthArrow:         sideWidthArrow         ?? widthArrow)
     }
     
     open func message(_ message:String) -> TutorialTarget {

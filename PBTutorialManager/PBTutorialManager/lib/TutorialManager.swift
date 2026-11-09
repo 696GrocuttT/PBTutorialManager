@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import UIKit
 import AFCurvedArrowView
 
 
@@ -20,7 +21,8 @@ open class TutorialManager: NSObject {
     private      var removableConstraints = [NSLayoutConstraint]()
     private      var absConstraints       = [NSLayoutConstraint]()
     private      var targetConstraints    = [(constraint: NSLayoutConstraint, originalConstant: CGFloat)]()
-    private      var shownTargets         = [(view: UIView, label: UILabel, arrow: UIView?)]()
+    private      var shownTargets         = [(target: TutorialTarget, placement: TutorialTarget.BarPlacement, view: UIView,
+                                             label: UILabel, arrow: UIView?, constraints: [NSLayoutConstraint])]()
     private      let constraintPri        = UILayoutPriority(500) // lower than normal so we can't conflict with the main GUI
     
     public init(parent: UIView, fadeInDelay: TimeInterval? = nil, tutorialComplete: (() -> Void)? = nil) {
@@ -58,6 +60,7 @@ open class TutorialManager: NSObject {
         removableConstraints.removeAll()
         absConstraints.removeAll()
         targetConstraints.removeAll()
+        shownTargets.forEach() { $0.target.removeAnchor() }
         shownTargets.removeAll()
     }
     
@@ -71,26 +74,31 @@ open class TutorialManager: NSObject {
 
     public func refreshConstraints() {
         if let mask {
+            if let parent {
+                shownTargets.forEach() { $0.target.updateAnchorFrame(in: parent) }
+            }
+            refreshSidePlacements(in: mask)
             mask.setNeedsUpdateConstraints()
             mask.updateConstraintsIfNeeded()
             restoreConstraints()
-            refreshTargetVisibility()
             refreshArrowConstraints()
+            refreshTargetVisibility()
             mask.setNeedsDisplay()
         }
     }
 
     private func refreshTargetVisibility() {
         if let mask {
-            for (view, label, arrow) in shownTargets {
+            for shown in shownTargets {
                 var visible = false
-                if let window = view.window, window === mask.window {
-                    let rect = view.convert(view.bounds, to: mask).intersection(mask.bounds)
-                    visible  = !rect.isNull && rect.minX.isFinite  && rect.minY.isFinite &&
-                                               rect.width.isFinite && rect.height.isFinite
+                if let window = shown.view.window, window === mask.window {
+                    let rect = shown.view.convert(shown.view.bounds, to: mask).intersection(mask.bounds)
+                    visible = !shown.view.bounds.isEmpty && !rect.isNull && !rect.isEmpty &&
+                              rect.minX.isFinite && rect.minY.isFinite &&
+                              rect.width.isFinite && rect.height.isFinite
                 }
-                label.isHidden  = !visible
-                arrow?.isHidden = !visible
+                shown.label.isHidden  = !visible
+                shown.arrow?.isHidden = !visible
             }
         }
     }
@@ -144,6 +152,26 @@ open class TutorialManager: NSObject {
             }
         }
     }
+
+    private func refreshSidePlacements(in mask: HoledView) {
+        let changed = shownTargets.filter({ $0.target.barButtonItem != nil &&
+            $0.placement != $0.target.placement() })
+        for shown in changed {
+            removeShownTarget(target: shown.target, removeAnchor: false)
+            layoutTarget(shown.target, in: mask, hole: nil)
+        }
+    }
+
+    private func removeShownTarget(target: TutorialTarget, removeAnchor: Bool) {
+        guard let shown = shownTargets.first(where: { $0.target === target }) else { return }
+        NSLayoutConstraint.deactivate(shown.constraints)
+        removableConstraints.removeAll(where: { constraint in shown.constraints.contains(where: { $0 === constraint }) })
+        targetConstraints.removeAll(where: { entry in shown.constraints.contains(where: { $0 === entry.constraint }) })
+        shown.label.removeFromSuperview()
+        shown.arrow?.removeFromSuperview()
+        shownTargets.removeAll(where: { $0.target === target })
+        if removeAnchor { shown.target.removeAnchor() }
+    }
     
     /**
      Fire the targets, when you have finished to set-up and add all your targets
@@ -160,7 +188,8 @@ open class TutorialManager: NSObject {
         // some strange reason these buttons visibly appear about 0.5 seconds after the rest of the
         // view controller if the master view also has a tool bar.
         if let currentTarget = targets.first {
-            if currentTarget.view?.window != nil {
+            currentTarget.installAnchor(in: parent)
+            if currentTarget.targetView?.window != nil {
                 timeOutCount = 0
                 currentTarget.onShow?()
                 showTarget(currentTarget)
@@ -227,24 +256,52 @@ open class TutorialManager: NSObject {
             parent.addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "V:|[mask]|", options: [.alignAllCenterX, .alignAllCenterY], metrics: nil, views: ["mask":mask])) //Equal Height
         }
         
-        /* Position the target on the view */
-        if let view = target.view {
-            // Check the type of the target
-            var hole: Hole? = nil
-            switch target.shape {
-            case .elipse?:
-                hole = mask.addElipse(view: view)
-            case .rect?:
-                hole = mask.addRectHole(view: view)
-            case .roundedRect?:
-                hole = mask.addRectHole(view: view, cornerRadius: 10)
-            default:
-                ()
+        guard let view = target.targetView else { return }
+        let hole: Hole?
+        switch target.shape {
+        case .elipse?:
+            hole = mask.addElipse(view: view)
+        case .rect?:
+            hole = mask.addRectHole(view: view)
+        case .roundedRect?:
+            hole = mask.addRectHole(view: view, cornerRadius: 10)
+        default:
+            hole = nil
+        }
+
+        layoutTarget(target, in: mask, hole: hole)
+        // Advancing a tutorial after rotation does not cause another controller layout callback.
+        refreshArrowConstraints()
+        refreshTargetVisibility()
+
+        let handleNextTarget = {
+            //If not persistent disappear before the next mask appear
+            if target.persistant == false {
+                mask.removeHoles()
+                self.removeShownTarget(target: target, removeAnchor: true)
             }
-            
+            self.targets.removeFirst()
+            self.fireTargets()
+        }
+
+        if !target.breakPoint {
+            if let duration = target.duration {
+                // Delay execution of my block for duration
+                DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + duration) {
+                    handleNextTarget()
+                }
+            } else {
+                handleNextTarget()
+            }
+        }
+    }
+
+    private func layoutTarget(_ target: TutorialTarget, in mask: HoledView, hole: Hole?) {
+        if let view = target.targetView {
+            let (currentPlacement, position, arrowStartPosition, heightArrow, widthArrow) = target.placementDetails()
             // Get the properties of the target
             let label = UILabel()
-            let arrow = target.position != .centre ? AFCurvedArrowView() : nil
+            let arrow = position != .centre ? AFCurvedArrowView() : nil
             let arrowHeadX: NSLayoutConstraint.Attribute
             let arrowHeadY: NSLayoutConstraint.Attribute
             var constraints = [NSLayoutConstraint]()
@@ -252,7 +309,7 @@ open class TutorialManager: NSObject {
         
             // Now setup the arrow direction
             if let arrow = arrow {
-                switch target.arrowStartPosition ?? target.position {
+                switch arrowStartPosition {
                 case .top:
                     arrow.arrowTail = CGPoint(x: 0.5, y: 0.05)
                     arrow.arrowHead = CGPoint(x: 0.5, y: 0.95)
@@ -353,7 +410,7 @@ open class TutorialManager: NSObject {
                 arrowHeadY = .notAnAttribute
             }
             
-            switch target.position {
+            switch position {
             case .top:
                 /* Illustration
                  H:[view]-[arrowView]-[label]
@@ -457,10 +514,17 @@ open class TutorialManager: NSObject {
             labelWidthConstraint.priority = UILayoutPriority(rawValue: constraintPri.rawValue - 1)
             constraints.append(labelWidthConstraint)
             // Now make sure the label doesn't go outside the parent
-            constraints.append(NSLayoutConstraint(item: label,     attribute: .leading,  relatedBy:  .greaterThanOrEqual,
-                                                   toItem: parent, attribute: .leading,  multiplier: 1, constant: 0))
-            constraints.append(NSLayoutConstraint(item: parent!,   attribute: .trailing, relatedBy:  .greaterThanOrEqual,
-                                                  toItem: label,   attribute: .trailing, multiplier: 1, constant: 0))
+            let leadingLimit = NSLayoutConstraint(item: label,     attribute: .leading,  relatedBy: .greaterThanOrEqual,
+                                                  toItem: parent, attribute: .leading,  multiplier: 1, constant: 0)
+            let trailingLimit = NSLayoutConstraint(item: parent!, attribute: .trailing, relatedBy: .greaterThanOrEqual,
+                                                   toItem: label, attribute: .trailing, multiplier: 1, constant: 0)
+            if target.barButtonItem != nil {
+                // The sidebar can move before its label is rebuilt on the other side.
+                // Keep the button's geometry intact until the new layout is installed.
+                leadingLimit.priority  = UILayoutPriority(750)
+                trailingLimit.priority = UILayoutPriority(750)
+            }
+            constraints.append(contentsOf: [leadingLimit, trailingLimit])
 
             // Add an arrow if the user as ask for one
             if target.withArrow, let arrowView = arrow {
@@ -469,46 +533,21 @@ open class TutorialManager: NSObject {
                 arrowView.curveType = .quadratic
                 arrowView.translatesAutoresizingMaskIntoConstraints = false
                 constraints.append(NSLayoutConstraint(item: arrowView, attribute: .height,         relatedBy: .equal,
-                                                      toItem: nil,     attribute: .notAnAttribute, multiplier: 1, constant: target.heightArrow))
+                                                      toItem: nil,     attribute: .notAnAttribute, multiplier: 1, constant: heightArrow))
                 constraints.append(NSLayoutConstraint(item: arrowView, attribute: .width,          relatedBy: .equal,
-                                                      toItem: nil,     attribute: .notAnAttribute, multiplier: 1, constant: target.widthArrow))
+                                                      toItem: nil,     attribute: .notAnAttribute, multiplier: 1, constant: widthArrow))
                 mask.addSubview(arrowView)
             }
             mask.addSubview(label)
             
-            if let hole {
+            if let hole, target.barButtonItem == nil {
                 addAbsConstraints(hole: hole)
             }
             
             removableConstraints.append(contentsOf: constraints)
             parent.addConstraints(constraints)
-            // Advancing a tutorial after rotation does not cause another controller layout callback.
-            refreshArrowConstraints()
-            shownTargets.append((view: view, label: label, arrow: arrow))
-            refreshTargetVisibility()
-            
-            let handleNextTarget = {
-                //If not persistent disappear before the next mask appear
-                if target.persistant == false {
-                    mask.removeHoles()
-                    arrow?.isHidden = true
-                    label.isHidden = true
-                    self.shownTargets.removeAll(where: {$0.label === label})
-                }
-                self.targets.removeFirst()
-                self.fireTargets()
-            }
-            
-            if !target.breakPoint {
-                if let duration = target.duration {
-                    // Delay execution of my block for duration
-                    DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + duration) {
-                        handleNextTarget()
-                    }
-                } else {
-                    handleNextTarget()
-                }
-            }
+            shownTargets.append((target: target, placement: currentPlacement, view: view,
+                                 label: label, arrow: arrow, constraints: constraints))
         }
     }
     
@@ -516,7 +555,9 @@ open class TutorialManager: NSObject {
         // With the liquid glass UI its possible that some buttonss on button bars won't be
         // fully constrained, but their possition will be correct. So add some constraints to
         // tie the view to its current possition. The low priority ensures theres no conflicts.
-        if let parent, let holeRect = hole.getRelRect(to: parent), let view = hole.view, view.isDescendant(of: parent) {
+        if let parent, let holeRect = hole.getRelRect(to: parent), let view = hole.view,
+           view.isDescendant(of: parent),
+           !shownTargets.contains(where: { $0.target.barButtonItem != nil && $0.view === view }) {
             let left      = NSLayoutConstraint(item:   view,   attribute: .left, relatedBy: .equal,
                                                toItem: parent, attribute: .left, multiplier: 1, constant: holeRect.minX)
             let top       = NSLayoutConstraint(item:   view,   attribute: .top,  relatedBy: .equal,
@@ -547,4 +588,3 @@ open class TutorialManager: NSObject {
         }
     }
 }
-
